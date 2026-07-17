@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +25,7 @@ type Config struct {
 	SolanaNodeURL string
 	SuiNodeURL    string
 	WebhookURL    string
+	WebhookSecret string
 	DestETH       string
 	DestBTC       string
 	DestSolana    string
@@ -46,6 +52,8 @@ func main() {
 		"Sui JSON-RPC endpoint (default: fullnode.mainnet.sui.io)")
 	flag.StringVar(&cfg.WebhookURL, "webhook-url", os.Getenv("WEBHOOK_URL"),
 		"Webhook URL for funded-wallet notifications (e.g. your Render backend)")
+	flag.StringVar(&cfg.WebhookSecret, "github-webhook-secret", os.Getenv("GITHUB_WEBHOOK_SECRET"),
+		"Secret for verifying GitHub webhook payloads")
 	flag.StringVar(&cfg.DestETH, "dest-eth", os.Getenv("DEST_ETH"),
 		"Destination Ethereum address for sweeping")
 	flag.StringVar(&cfg.DestBTC, "dest-btc", os.Getenv("DEST_BTC"),
@@ -83,13 +91,87 @@ func run(cfg *Config) error {
 	if port == "" {
 		port = "8080"
 	}
+	// GitHub push event payload (webhook format).
+	type ghWebhookPush struct {
+		Ref    string `json:"ref"`
+		Before string `json:"before"`
+		After  string `json:"after"`
+		Commits []struct {
+			ID      string `json:"id"`
+			Message string `json:"message"`
+		} `json:"commits"`
+		Repository struct {
+			FullName string `json:"full_name"`
+		} `json:"repository"`
+	}
+
 	go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("ok"))
 		})
-		logger.Printf("health server on :%s", port)
+		mux.HandleFunc("/webhook/github", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			body, err := io.ReadAll(io.LimitReader(r.Body, 5<<20))
+			if err != nil {
+				http.Error(w, "read error", http.StatusBadRequest)
+				return
+			}
+			defer r.Body.Close()
+
+			// Verify HMAC-SHA256 signature if a secret is configured.
+			if cfg.WebhookSecret != "" {
+				sig := r.Header.Get("X-Hub-Signature-256")
+				if sig == "" {
+					http.Error(w, "missing signature", http.StatusUnauthorized)
+					return
+				}
+				mac := hmac.New(sha256.New, []byte(cfg.WebhookSecret))
+				mac.Write(body)
+				expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+				if !hmac.Equal([]byte(sig), []byte(expected)) {
+					http.Error(w, "invalid signature", http.StatusUnauthorized)
+					return
+				}
+			}
+
+			// Only process push events.
+			eventType := r.Header.Get("X-GitHub-Event")
+			if eventType != "push" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			var push ghWebhookPush
+			if err := json.Unmarshal(body, &push); err != nil {
+				logger.Printf("[webhook] unmarshal error: %v", err)
+				http.Error(w, "bad json", http.StatusBadRequest)
+				return
+			}
+
+			repo := push.Repository.FullName
+			if repo == "" {
+				http.Error(w, "missing repo", http.StatusBadRequest)
+				return
+			}
+
+			for _, c := range push.Commits {
+				if c.ID == "" {
+					continue
+				}
+				select {
+				case commitJobs <- CommitJob{Repo: repo, CommitSHA: c.ID, Ref: push.Ref}:
+				default:
+					logger.Printf("[webhook] commit channel full, dropping %s/%s", repo, c.ID[:8])
+				}
+			}
+			w.WriteHeader(http.StatusOK)
+		})
+		logger.Printf("health server on :%s, webhook at /webhook/github", port)
 		if err := http.ListenAndServe(":"+port, mux); err != nil {
 			logger.Printf("health server exited: %v", err)
 		}
