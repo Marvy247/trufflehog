@@ -510,6 +510,14 @@ func DeriveAddresses(key FoundKey) (DerivedAddresses, error) {
 			lastErr = err
 		}
 
+	case "Mnemonic":
+		derived, err := deriveAddressesFromMnemonic(key.Raw)
+		if err != nil {
+			lastErr = err
+		} else {
+			addrs = derived
+		}
+
 	case "BIP39 mnemonic":
 		addr, err := DeriveBIP39ETH(key.Raw)
 		if err == nil {

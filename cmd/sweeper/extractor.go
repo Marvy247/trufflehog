@@ -9,7 +9,7 @@ import (
 
 // FoundKey is a validated private key found in a commit diff.
 type FoundKey struct {
-	Chain     string // "Ethereum", "Bitcoin", "Solana", …
+	Chain     string // "Ethereum", "Bitcoin", "Solana", "Mnemonic", …
 	Raw       string // the raw secret as found
 	Repo      string
 	CommitSHA string
@@ -25,7 +25,6 @@ func ExtractKeys(ctx context.Context, diff, repo, sha string, verifyOnline bool)
 	results, err := blockchainScanner.FromData(ctx, verifyOnline, []byte(diff))
 	if err != nil {
 		logger.Printf("[extractor] detector error: %v", err)
-		return nil
 	}
 
 	var found []FoundKey
@@ -46,5 +45,17 @@ func ExtractKeys(ctx context.Context, diff, repo, sha string, verifyOnline bool)
 			Verified:  r.Verified,
 		})
 	}
+
+	// Also scan for BIP39 mnemonics in the diff.
+	for _, phrase := range findMnemonics(diff) {
+		found = append(found, FoundKey{
+			Chain:     "Mnemonic",
+			Raw:       phrase,
+			Repo:      repo,
+			CommitSHA: sha,
+			Verified:  true,
+		})
+	}
+
 	return found
 }
