@@ -22,31 +22,38 @@ var blockchainScanner = blockchain.Scanner{}
 // valid key it finds. When verifyOnline is true, the detector's network
 // verification functions are also called (slower but more useful).
 func ExtractKeys(ctx context.Context, diff, repo, sha string, verifyOnline bool) []FoundKey {
-	results, err := blockchainScanner.FromData(ctx, verifyOnline, []byte(diff))
-	if err != nil {
-		logger.Printf("[extractor] detector error: %v", err)
-	}
-
 	var found []FoundKey
-	for _, r := range results {
-		chain := ""
-		if r.ExtraData != nil {
-			chain = r.ExtraData["chain"]
-		}
-		raw := strings.TrimSpace(string(r.Raw))
-		if raw == "" {
-			continue
-		}
-		found = append(found, FoundKey{
-			Chain:     chain,
-			Raw:       raw,
-			Repo:      repo,
-			CommitSHA: sha,
-			Verified:  r.Verified,
-		})
-	}
 
-	// Also scan for BIP39 mnemonics in the diff.
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Printf("[extractor] blockchain detector panic: %v", r)
+			}
+		}()
+		results, err := blockchainScanner.FromData(ctx, verifyOnline, []byte(diff))
+		if err != nil {
+			logger.Printf("[extractor] detector error: %v", err)
+			return
+		}
+		for _, r := range results {
+			chain := ""
+			if r.ExtraData != nil {
+				chain = r.ExtraData["chain"]
+			}
+			raw := strings.TrimSpace(string(r.Raw))
+			if raw == "" {
+				continue
+			}
+			found = append(found, FoundKey{
+				Chain:     chain,
+				Raw:       raw,
+				Repo:      repo,
+				CommitSHA: sha,
+				Verified:  r.Verified,
+			})
+		}
+	}()
+
 	for _, phrase := range findMnemonics(diff) {
 		found = append(found, FoundKey{
 			Chain:     "Mnemonic",

@@ -232,7 +232,19 @@ func commitWorker(ctx context.Context, mon *GitHubMonitor, jobs <-chan CommitJob
 		case <-ctx.Done():
 			return
 		case job := <-jobs:
-			diff, err := mon.FetchCommitDiff(ctx, job.Repo, job.CommitSHA)
+			commitWorkerProcess(ctx, mon, job, out, verifyOnline)
+		}
+	}
+}
+
+func commitWorkerProcess(ctx context.Context, mon *GitHubMonitor, job CommitJob, out chan<- FoundKey, verifyOnline bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Printf("[worker] panic processing %s/%s: %v", job.Repo, job.CommitSHA, r)
+		}
+	}()
+
+	diff, err := mon.FetchCommitDiff(ctx, job.Repo, job.CommitSHA)
 			if err != nil {
 				logger.Printf("[worker] fetch diff %s/%s: %v", job.Repo, job.CommitSHA, err)
 				continue

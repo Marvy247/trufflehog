@@ -435,6 +435,9 @@ func parseSecp256k1Key(raw string) (*ecdsa.PrivateKey, error) {
 		return nil, fmt.Errorf("key out of range")
 	}
 	x, y := secp256k1Curve.ScalarBaseMult(keyBytes)
+	if x == nil || y == nil || !secp256k1Curve.IsOnCurve(x, y) {
+		return nil, fmt.Errorf("invalid secp256k1 key: point not on curve")
+	}
 	return &ecdsa.PrivateKey{
 		PublicKey: ecdsa.PublicKey{Curve: secp256k1Curve, X: x, Y: y},
 		D:         keyInt,
