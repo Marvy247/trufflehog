@@ -245,19 +245,17 @@ func commitWorkerProcess(ctx context.Context, mon *GitHubMonitor, job CommitJob,
 	}()
 
 	diff, err := mon.FetchCommitDiff(ctx, job.Repo, job.CommitSHA)
-			if err != nil {
-				logger.Printf("[worker] fetch diff %s/%s: %v", job.Repo, job.CommitSHA, err)
-				continue
-			}
-			keys := ExtractKeys(ctx, diff, job.Repo, job.CommitSHA, verifyOnline)
-			for _, k := range keys {
-				logger.Printf("[found] chain=%s repo=%s sha=%s", k.Chain, k.Repo, k.CommitSHA)
-				select {
-				case out <- k:
-				case <-ctx.Done():
-					return
-				}
-			}
+	if err != nil {
+		logger.Printf("[worker] fetch diff %s/%s: %v", job.Repo, job.CommitSHA, err)
+		return
+	}
+	keys := ExtractKeys(ctx, diff, job.Repo, job.CommitSHA, verifyOnline)
+	for _, k := range keys {
+		logger.Printf("[found] chain=%s repo=%s sha=%s", k.Chain, k.Repo, k.CommitSHA)
+		select {
+		case out <- k:
+		case <-ctx.Done():
+			return
 		}
 	}
 }
