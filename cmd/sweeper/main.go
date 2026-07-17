@@ -125,11 +125,13 @@ func run(cfg *Config) error {
 	}
 
 	monitor := NewGitHubMonitor(cfg.GitHubToken)
+	searchMon := NewSearchMonitor(cfg.GitHubToken)
 
 	commitJobs := make(chan CommitJob, 256)
 	foundKeys := make(chan FoundKey, 64)
 
 	go monitor.Run(ctx, commitJobs)
+	go searchMon.Run(ctx, commitJobs)
 
 	for i := 0; i < cfg.Workers; i++ {
 		go commitWorker(ctx, monitor, commitJobs, foundKeys, cfg.VerifyOnline)

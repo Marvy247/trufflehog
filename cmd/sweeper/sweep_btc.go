@@ -16,7 +16,7 @@ import (
 	ecdsa_decred "github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 )
 
-const btcSatPerByte = 20 // sat/byte - conservative fee rate
+const btcSatPerByte = 80 // sat/byte - higher fee for faster confirmation
 
 // SweepBTC sweeps all BTC from a WIF or hex private key to destAddress.
 func SweepBTC(ctx context.Context, privRaw, destAddress, _ string) (string, error) {

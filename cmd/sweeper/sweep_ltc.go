@@ -15,7 +15,7 @@ import (
 	ecdsa_d "github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 )
 
-const ltcFeeSatPerByte = 20
+const ltcFeeSatPerByte = 80
 
 func SweepLTC(ctx context.Context, privRaw, destAddress string) (string, error) {
 	privBytes, err := rawToPrivBytes(privRaw)

@@ -25,79 +25,95 @@ type BalanceResult struct {
 
 var balanceHTTPClient = &http.Client{Timeout: 20 * time.Second}
 
-// CheckBalances queries the balance for every non-empty address in addrs.
+// CheckBalances queries the balance for every non-empty address in addrs (parallel).
 func CheckBalances(ctx context.Context, addrs DerivedAddresses, cfg *Config) ([]BalanceResult, error) {
-	var results []BalanceResult
+	type rpcResult struct {
+		Index int
+		Result BalanceResult
+		Err    error
+	}
+
+	type check struct {
+		Index int
+		Name  string
+		Fn    func() (BalanceResult, error)
+	}
+
+	var checks []check
+	idx := 0
 
 	if addrs.ETH != "" {
-		r, err := checkETHBalance(ctx, addrs.ETH, cfg.ETHNodeURL)
-		if err != nil {
-			logger.Printf("[balance] ETH error for %s: %v", addrs.ETH, err)
-		} else {
-			results = append(results, r)
-		}
+		i := idx; idx++
+		addr := addrs.ETH
+		checks = append(checks, check{i, "ETH", func() (BalanceResult, error) {
+			return checkETHBalance(ctx, addr, cfg.ETHNodeURL)
+		}})
 	}
-
 	if addrs.BTC != "" {
-		r, err := checkBTCBalance(ctx, addrs.BTC)
-		if err != nil {
-			logger.Printf("[balance] BTC error for %s: %v", addrs.BTC, err)
-		} else {
-			results = append(results, r)
-		}
+		i := idx; idx++
+		addr := addrs.BTC
+		checks = append(checks, check{i, "BTC", func() (BalanceResult, error) {
+			return checkBTCBalance(ctx, addr)
+		}})
 	}
-
 	if addrs.DOGE != "" {
-		r, err := checkDOGEBalance(ctx, addrs.DOGE)
-		if err != nil {
-			logger.Printf("[balance] DOGE error for %s: %v", addrs.DOGE, err)
-		} else {
-			results = append(results, r)
-		}
+		i := idx; idx++
+		addr := addrs.DOGE
+		checks = append(checks, check{i, "DOGE", func() (BalanceResult, error) {
+			return checkDOGEBalance(ctx, addr)
+		}})
 	}
-
 	if addrs.LTC != "" {
-		r, err := checkLTCBalance(ctx, addrs.LTC)
-		if err != nil {
-			logger.Printf("[balance] LTC error for %s: %v", addrs.LTC, err)
-		} else {
-			results = append(results, r)
-		}
+		i := idx; idx++
+		addr := addrs.LTC
+		checks = append(checks, check{i, "LTC", func() (BalanceResult, error) {
+			return checkLTCBalance(ctx, addr)
+		}})
 	}
-
 	if addrs.STX != "" {
-		r, err := checkSTXBalance(ctx, addrs.STX)
-		if err != nil {
-			logger.Printf("[balance] STX error for %s: %v", addrs.STX, err)
-		} else {
-			results = append(results, r)
-		}
+		i := idx; idx++
+		addr := addrs.STX
+		checks = append(checks, check{i, "STX", func() (BalanceResult, error) {
+			return checkSTXBalance(ctx, addr)
+		}})
 	}
-
 	if addrs.Sui != "" {
-		r, err := checkSuiBalance(ctx, addrs.Sui, cfg.SuiNodeURL)
-		if err != nil {
-			logger.Printf("[balance] Sui error for %s: %v", addrs.Sui, err)
-		} else {
-			results = append(results, r)
-		}
+		i := idx; idx++
+		addr := addrs.Sui
+		checks = append(checks, check{i, "Sui", func() (BalanceResult, error) {
+			return checkSuiBalance(ctx, addr, cfg.SuiNodeURL)
+		}})
 	}
-
 	if addrs.XLM != "" {
-		r, err := checkXLMBalance(ctx, addrs.XLM)
-		if err != nil {
-			logger.Printf("[balance] XLM error for %s: %v", addrs.XLM, err)
-		} else {
-			results = append(results, r)
-		}
+		i := idx; idx++
+		addr := addrs.XLM
+		checks = append(checks, check{i, "XLM", func() (BalanceResult, error) {
+			return checkXLMBalance(ctx, addr)
+		}})
+	}
+	if addrs.Solana != "" {
+		i := idx; idx++
+		addr := addrs.Solana
+		checks = append(checks, check{i, "SOL", func() (BalanceResult, error) {
+			return checkSolanaBalance(ctx, addr, cfg.SolanaNodeURL)
+		}})
 	}
 
-	if addrs.Solana != "" {
-		r, err := checkSolanaBalance(ctx, addrs.Solana, cfg.SolanaNodeURL)
-		if err != nil {
-			logger.Printf("[balance] Solana error for %s: %v", addrs.Solana, err)
+	ch := make(chan rpcResult, len(checks))
+	for _, c := range checks {
+		go func(c check) {
+			r, err := c.Fn()
+			ch <- rpcResult{c.Index, r, err}
+		}(c)
+	}
+
+	results := make([]BalanceResult, 0, len(checks))
+	for range checks {
+		r := <-ch
+		if r.Err != nil {
+			logger.Printf("[balance] %s error: %v", checks[r.Index].Name, r.Err)
 		} else {
-			results = append(results, r)
+			results = append(results, r.Result)
 		}
 	}
 

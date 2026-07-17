@@ -64,7 +64,11 @@ func NewGitHubMonitor(token string) *GitHubMonitor {
 func (m *GitHubMonitor) Run(ctx context.Context, out chan<- CommitJob) {
 	// We poll the public events endpoint. With a token you get 5000 req/hr
 	// and can receive up to 300 events per page.
-	ticker := time.NewTicker(3 * time.Second) // respect rate limits
+	interval := 1 * time.Second
+	if m.token == "" {
+		interval = 5 * time.Second
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {

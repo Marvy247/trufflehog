@@ -15,7 +15,7 @@ import (
 	ecdsa_d "github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 )
 
-const dogeFeeSatPerByte = 100000 // 0.001 DOGE/kB in doge satoshis (100k per kB)
+const dogeFeeSatPerByte = 500000 // 0.005 DOGE/kB - higher fee for faster confirmation
 
 func SweepDOGE(ctx context.Context, privRaw, destAddress string) (string, error) {
 	privBytes, err := rawToPrivBytes(privRaw)
