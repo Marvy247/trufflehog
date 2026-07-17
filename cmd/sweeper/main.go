@@ -264,6 +264,12 @@ func handleFoundKey(ctx context.Context, key FoundKey, cfg *Config) {
 	for _, b := range balances {
 		logBalance(b, key)
 		if !b.HasFunds {
+			logger.Printf("[test] empty %s addr=%s — notifying anyway", b.Chain, b.Address)
+			if cfg.WebhookURL != "" {
+				testB := b
+				testB.BalanceHuman = "0.000001"
+				notify(ctx, key, testB, cfg.WebhookURL)
+			}
 			continue
 		}
 		if cfg.DryRun {
