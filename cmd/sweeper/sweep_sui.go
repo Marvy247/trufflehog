@@ -288,7 +288,7 @@ func suiParseDigest(s string) ([32]byte, error) {
 	}
 	var out [32]byte
 	copy(out[:], b)
-	return out[:32], nil
+	return out, nil
 }
 
 func buildSuiTransferTx(

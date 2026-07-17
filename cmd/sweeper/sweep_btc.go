@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -260,48 +259,4 @@ func btcBroadcast(ctx context.Context, rawTx []byte) (string, error) {
 	return hex.EncodeToString(txID), nil
 }
 
-// ---- Binary encoding helpers ----
 
-func uint32LE(n uint32) []byte {
-	b := make([]byte, 4)
-	binary.LittleEndian.PutUint32(b, n)
-	return b
-}
-
-func uint64LE(n uint64) []byte {
-	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, n)
-	return b
-}
-
-func varInt(n uint64) []byte {
-	switch {
-	case n < 0xFD:
-		return []byte{byte(n)}
-	case n <= 0xFFFF:
-		return append([]byte{0xFD}, uint16LE(uint16(n))...)
-	case n <= 0xFFFFFFFF:
-		return append([]byte{0xFE}, uint32LE(uint32(n))...)
-	default:
-		return append([]byte{0xFF}, uint64LE(n)...)
-	}
-}
-
-func uint16LE(n uint16) []byte {
-	b := make([]byte, 2)
-	binary.LittleEndian.PutUint16(b, n)
-	return b
-}
-
-func pushData(data []byte) []byte {
-	if len(data) < 0x4C {
-		return append([]byte{byte(len(data))}, data...)
-	}
-	return append([]byte{0x4C, byte(len(data))}, data...)
-}
-
-func reverseBytes(b []byte) {
-	for i, j := 0, len(b)-1; i < j; i, j = i+1, j-1 {
-		b[i], b[j] = b[j], b[i]
-	}
-}
