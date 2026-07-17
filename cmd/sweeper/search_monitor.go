@@ -38,18 +38,56 @@ func NewSearchMonitor(token string) *SearchMonitor {
 }
 
 var commitSearchQueries = []string{
+	// Private key formats
 	`"BEGIN EC PRIVATE KEY"`,
 	`"BEGIN ETH PRIVATE KEY"`,
+	`"BEGIN RSA PRIVATE KEY"`,
+	`"BEGIN DSA PRIVATE KEY"`,
+	`"BEGIN OPENSSH PRIVATE KEY"`,
+	`"private key" ` + `"wallet"`,
+
+	// Mnemonics and seed phrases
 	`"mnemonic" ` + `"wallet" ` + `"phrase"`,
-	`"private key" ` + `"wallet" ` + `"ethereum"`,
-	`"xprv" ` + `"private"`,
 	`"seed phrase" ` + `"wallet"`,
-	`"keystore" ` + `"password" ` + `"wallet"`,
 	`"secret recovery phrase"`,
-}
+	`"twelve word" ` + `"seed"`,
+	`"24 word" ` + `"seed"`,
+	`"bip39" ` + `"phrase"`,
+
+	// Key strings in code
+	`"private_key" ` + `"0x"`,
+	`"PRIVATE_KEY" ` + `"0x"`,
+	`"secret_key" ` + `"ed25519"`,
+	`"wallet" ` + `"private" ` + `"export"`,
+
+	// Keystore / password
+	`"keystore" ` + `"password" ` + `"wallet"`,
+	`"UTC--" ` + `"wallet"`,
+
+	// Solana
+	`"solana" ` + `"private" ` + `"key"`,
+	`"id.json" ` + `"solana"`,
+
+	// Extended keys
+	`"xprv" ` + `"private"`,
+	`"xpub" ` + `"xprv"`,
+	`"tprv" ` + `"private"`,
+
+	// Stacks / Stellar / Sui
+	`"stacks" ` + `"private" ` + `"key"`,
+	`"stellar" ` + `"secret" ` + `"key"`,
+	`"sui" ` + `"private" ` + `"key"`,
+
+	// Dogecoin / Litecoin / Bitcoin
+	`"Doge" ` + `"private" ` + `"key"`,
+	`"LTC" ` + `"private" ` + `"key"`,
+	`"BTC" ` + `"private" ` + `"key"`,
+	`"wallet.dat" ` + `"password"`,
+
+}`
 
 func (m *SearchMonitor) Run(ctx context.Context, out chan<- CommitJob) {
-	ticker := time.NewTicker(20 * time.Second)
+	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
 	var queryIdx int

