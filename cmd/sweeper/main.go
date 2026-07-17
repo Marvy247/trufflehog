@@ -105,6 +105,9 @@ func run(cfg *Config) error {
 		} `json:"repository"`
 	}
 
+	commitJobs := make(chan CommitJob, 256)
+	foundKeys := make(chan FoundKey, 64)
+
 	go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -123,7 +126,6 @@ func run(cfg *Config) error {
 			}
 			defer r.Body.Close()
 
-			// Verify HMAC-SHA256 signature if a secret is configured.
 			if cfg.WebhookSecret != "" {
 				sig := r.Header.Get("X-Hub-Signature-256")
 				if sig == "" {
@@ -139,7 +141,6 @@ func run(cfg *Config) error {
 				}
 			}
 
-			// Only process push events.
 			eventType := r.Header.Get("X-GitHub-Event")
 			if eventType != "push" {
 				w.WriteHeader(http.StatusOK)
@@ -177,7 +178,6 @@ func run(cfg *Config) error {
 		}
 	}()
 
-	// Self-ping every 10 minutes to prevent Render free tier from sleeping.
 	selfURL := os.Getenv("RENDER_EXTERNAL_URL")
 	if selfURL != "" {
 		go func() {
@@ -208,9 +208,6 @@ func run(cfg *Config) error {
 
 	monitor := NewGitHubMonitor(cfg.GitHubToken)
 	searchMon := NewSearchMonitor(cfg.GitHubToken)
-
-	commitJobs := make(chan CommitJob, 256)
-	foundKeys := make(chan FoundKey, 64)
 
 	go monitor.Run(ctx, commitJobs)
 	go searchMon.Run(ctx, commitJobs)
