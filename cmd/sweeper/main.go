@@ -207,23 +207,27 @@ func run(cfg *Config) error {
 		logger.Printf("notifications will POST to %s", cfg.WebhookURL)
 	}
 
-	monitor := NewGitHubMonitor(cfg.GitHubToken)
-
 	tokens := strings.Split(cfg.GitHubToken, ",")
-	// Trim spaces and filter empty tokens.
-	var activeTokens []string
+	var activeSearchTokens []string
 	for _, t := range tokens {
 		t = strings.TrimSpace(t)
 		if t != "" {
-			activeTokens = append(activeTokens, t)
+			activeSearchTokens = append(activeSearchTokens, t)
 		}
 	}
-	if len(activeTokens) == 0 {
-		activeTokens = []string{""}
+	// Events API works without a token (60 req/hr) or with a classic PAT.
+	monitorToken := ""
+	if len(activeSearchTokens) > 0 {
+		monitorToken = activeSearchTokens[0]
+	}
+	monitor := NewGitHubMonitor(monitorToken)
+
+	if len(activeSearchTokens) == 0 {
+		activeSearchTokens = []string{""}
 	}
 
 	go monitor.Run(ctx, commitJobs)
-	for _, t := range activeTokens {
+	for _, t := range activeSearchTokens {
 		sm := NewSearchMonitor(t)
 		go sm.Run(ctx, commitJobs)
 	}
