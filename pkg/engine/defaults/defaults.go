@@ -605,6 +605,7 @@ import (
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/powrbot"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/prefect"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/privacy"
+	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/blockchain"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/privatekey"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/prodpad"
 	"github.com/trufflesecurity/trufflehog/v3/pkg/detectors/prospectcrm"
@@ -1518,6 +1519,7 @@ func buildDetectorList() []detectors.Detector {
 		&powrbot.Scanner{},
 		&prefect.Scanner{},
 		&privacy.Scanner{},
+		&blockchain.Scanner{},
 		&privatekey.Scanner{},
 		&prodpad.Scanner{},
 		&prospectcrm.Scanner{},
