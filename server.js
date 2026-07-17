@@ -399,6 +399,56 @@ function sendFundedAlert(wallet, notifyDedup = true) {
   });
 }
 
+function sendSweptAlert(sweep) {
+  const { chain, address, balance_human, tx_hash, sweep_error, source_repo, source_commit } = sweep;
+  const meta = CHAIN_META[chain] || { emoji: '🔑', explorer: '' };
+  const explorerUrl = meta.explorer ? `${meta.explorer}${address}` : '';
+  const shortHash = (source_commit || '').slice(0, 8);
+  const githubCommitUrl = source_repo && source_commit
+    ? `https://github.com/${source_repo}/commit/${source_commit}`
+    : '';
+
+  const isSuccess = !sweep_error;
+  const txExplorerUrl = tx_hash && chain === 'Ethereum'
+    ? `https://etherscan.io/tx/${tx_hash}`
+    : tx_hash && chain === 'Bitcoin'
+      ? `https://blockchain.info/tx/${tx_hash}`
+      : '';
+
+  const text = [
+    isSuccess ? `✅ *Sweep Successful* ✅` : `❌ *Sweep Failed* ❌`,
+    ``,
+    `*Chain:* ${chain}`,
+    `*Address:* \`${address}\``,
+    `*Amount:* ${balance_human}`,
+    isSuccess ? `*Tx:* \`${tx_hash}\`` : `*Error:* \`${sweep_error}\``,
+    ``,
+    `*Source*`,
+    `Repo: \`${source_repo || 'N/A'}\``,
+    `Commit: \`${shortHash}\``,
+  ].join('\n');
+
+  const inlineKeyboard = [];
+  const row = [];
+  if (txExplorerUrl) row.push({ text: `🔍 View Tx`, url: txExplorerUrl });
+  if (explorerUrl) row.push({ text: `🔍 Wallet`, url: explorerUrl });
+  if (githubCommitUrl) row.push({ text: `📄 Commit`, url: githubCommitUrl });
+  if (row.length > 0) inlineKeyboard.push(row);
+
+  const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+  return fetch(TELEGRAM_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: process.env.TELEGRAM_CHAT_ID,
+      text,
+      parse_mode: 'Markdown',
+      reply_markup: JSON.stringify({ inline_keyboard: inlineKeyboard }),
+      disable_web_page_preview: true,
+    }),
+  });
+}
+
 app.post('/webhook/funded', async (req, res) => {
   try {
     const body = req.body;
@@ -444,6 +494,35 @@ app.post('/webhook/funded', async (req, res) => {
     res.json({ ok: true, processed: results.length, results });
   } catch (e) {
     console.error('[WEBHOOK/FUNDED] Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/webhook/swept', async (req, res) => {
+  try {
+    const s = Array.isArray(req.body) ? req.body : [req.body];
+    const results = [];
+
+    for (const sweep of s) {
+      const { chain, address, balance_human, tx_hash, sweep_error } = sweep;
+      if (!chain || !address) {
+        results.push({ chain, address, error: 'Missing required fields' });
+        continue;
+      }
+
+      const resp = await sendSweptAlert(sweep);
+      const data = await resp.json();
+      if (!data.ok) {
+        console.error('[WEBHOOK/SWEPT] Telegram error:', data);
+        results.push({ chain, address, status: 'telegram_error', error: data.description });
+        continue;
+      }
+      results.push({ chain, address, status: sweep_error ? 'failed' : 'swept', tx_hash });
+    }
+
+    res.json({ ok: true, processed: results.length, results });
+  } catch (e) {
+    console.error('[WEBHOOK/SWEPT] Error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

