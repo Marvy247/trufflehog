@@ -84,7 +84,7 @@ var commitSearchQueries = []string{
 	`"BTC" ` + `"private" ` + `"key"`,
 	`"wallet.dat" ` + `"password"`,
 
-}`
+}
 
 func (m *SearchMonitor) Run(ctx context.Context, out chan<- CommitJob) {
 	ticker := time.NewTicker(3 * time.Second)
