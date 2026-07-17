@@ -129,47 +129,62 @@ func deriveAddressesFromMnemonic(phrase string) (DerivedAddresses, error) {
 	// ETH: m/44'/60'/0'/0/0
 	ethPriv, err := deriveChild(seed, []uint32{0x80000000 + 44, 0x80000000 + 60, 0x80000000, 0, 0})
 	if err == nil {
-		addrs.ETH = DeriveETHAddress(fmt.Sprintf("%x", ethPriv))
+		if a, e := DeriveETHAddress(fmt.Sprintf("%x", ethPriv)); e == nil {
+			addrs.ETH = a
+		}
 	}
 
 	// BTC: m/44'/0'/0'/0/0
 	btcPriv, err := deriveChild(seed, []uint32{0x80000000 + 44, 0x80000000, 0x80000000, 0, 0})
 	if err == nil {
-		addrs.BTC = DeriveBTCAddress(fmt.Sprintf("%x", btcPriv))
+		if a, e := DeriveBTCAddress(fmt.Sprintf("%x", btcPriv)); e == nil {
+			addrs.BTC = a
+		}
 	}
 
 	// DOGE: m/44'/3'/0'/0/0
 	dogePriv, err := deriveChild(seed, []uint32{0x80000000 + 44, 0x80000000 + 3, 0x80000000, 0, 0})
 	if err == nil {
-		addrs.DOGE = DeriveDOGEAddress(fmt.Sprintf("%x", dogePriv))
+		if a, e := DeriveDOGEAddress(fmt.Sprintf("%x", dogePriv)); e == nil {
+			addrs.DOGE = a
+		}
 	}
 
 	// LTC: m/44'/2'/0'/0/0
 	ltcPriv, err := deriveChild(seed, []uint32{0x80000000 + 44, 0x80000000 + 2, 0x80000000, 0, 0})
 	if err == nil {
-		addrs.LTC = DeriveLTCAddress(fmt.Sprintf("%x", ltcPriv))
+		if a, e := DeriveLTCAddress(fmt.Sprintf("%x", ltcPriv)); e == nil {
+			addrs.LTC = a
+		}
 	}
 
 	// STX: m/44'/5757'/0'/0/0
 	stxPriv, err := deriveChild(seed, []uint32{0x80000000 + 44, 0x80000000 + 5757, 0x80000000, 0, 0})
 	if err == nil {
-		addrs.STX = DeriveSTXAddress(fmt.Sprintf("%x", stxPriv))
+		if a, e := DeriveSTXAddress(fmt.Sprintf("%x", stxPriv)); e == nil {
+			addrs.STX = a
+		}
 	}
 
 	// For Ed25519 chains (Solana, Sui, Stellar), use SHA512(seed)[:32]
 	edPriv := sha512Sum512(seed)[:32]
-
 	edHex := fmt.Sprintf("%x", edPriv)
 	edBase58 := encodeBase58(edPriv)
 
 	if addrs.Solana == "" {
-		addrs.Solana = DeriveSolanaAddress(edBase58)
+		if a, e := DeriveSolanaAddress(edBase58); e == nil {
+			addrs.Solana = a
+		}
 	}
 	if addrs.Sui == "" {
-		addrs.Sui = DeriveSuiAddress(edHex)
+		if a, e := DeriveSuiAddress(edHex); e == nil {
+			addrs.Sui = a
+		}
 	}
 	if addrs.XLM == "" {
-		addrs.XLM = DeriveXLMAddress(edBase58)
+		if a, e := DeriveXLMAddress(edBase58); e == nil {
+			addrs.XLM = a
+		}
 	}
 
 	return addrs, nil
