@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 var logger = log.New(os.Stderr, "[scanner] ", log.LstdFlags)
@@ -93,6 +94,27 @@ func run(cfg *Config) error {
 			logger.Printf("health server exited: %v", err)
 		}
 	}()
+
+	// Self-ping every 10 minutes to prevent Render free tier from sleeping.
+	selfURL := os.Getenv("RENDER_EXTERNAL_URL")
+	if selfURL != "" {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(10 * time.Minute):
+					resp, err := http.Get(selfURL + "/healthz")
+					if err != nil {
+						logger.Printf("[keepalive] ping failed: %v", err)
+					} else {
+						resp.Body.Close()
+					}
+				}
+			}
+		}()
+		logger.Printf("keep-alive pinging %s every 10m", selfURL)
+	}
 
 	logger.Printf("starting scanner (workers=%d, dry-run=%v)", cfg.Workers, cfg.DryRun)
 	if cfg.GitHubToken == "" {
