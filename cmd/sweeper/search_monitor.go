@@ -140,11 +140,8 @@ func (m *SearchMonitor) searchCommits(ctx context.Context, query string) ([]Comm
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, fmt.Errorf("rate limited (HTTP 429)")
-	}
-	if resp.StatusCode == http.StatusForbidden {
-		return nil, fmt.Errorf("access denied — check token permissions (HTTP 403)")
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("rate limited or forbidden (HTTP %d)", resp.StatusCode)
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
