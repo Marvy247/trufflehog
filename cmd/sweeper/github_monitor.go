@@ -161,8 +161,15 @@ func (m *GitHubMonitor) fetchEvents(ctx context.Context) ([]GitHubEvent, time.Du
 	return events, pollInterval, nil
 }
 
+var diffRateLimit = time.NewTicker(2 * time.Second) // max 30 diff fetches/min = 1800/hr, leaves room for search+monitor
+
 // FetchCommitDiff retrieves the unified diff for a single commit from the GitHub API.
 func (m *GitHubMonitor) FetchCommitDiff(ctx context.Context, repo, sha string) (string, error) {
+	select {
+	case <-diffRateLimit.C:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 	// "owner/repo" -> owner, repo
 	parts := strings.SplitN(repo, "/", 2)
 	if len(parts) != 2 {

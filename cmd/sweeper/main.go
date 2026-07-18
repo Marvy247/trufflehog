@@ -71,7 +71,7 @@ func main() {
 		"Destination Sui address for sweeping")
 	flag.StringVar(&cfg.DestXLM, "dest-xlm", os.Getenv("DEST_XLM"),
 		"Destination Stellar address for sweeping")
-	flag.IntVar(&cfg.Workers, "workers", 8,
+	flag.IntVar(&cfg.Workers, "workers", 4,
 		"Number of parallel commit-diff processing workers")
 	flag.BoolVar(&cfg.VerifyOnline, "verify-online", false,
 		"Call online verify functions in the blockchain detector (slower)")
