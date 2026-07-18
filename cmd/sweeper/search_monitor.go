@@ -87,10 +87,17 @@ var commitSearchQueries = []string{
 }
 
 func (m *SearchMonitor) Run(ctx context.Context, out chan<- CommitJob) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Printf("[search] FATAL: search monitor panicked: %v", r)
+		}
+	}()
+
 	ticker := time.NewTicker(6 * time.Second)
 	defer ticker.Stop()
 
 	var queryIdx int
+	heartbeat := time.Now()
 
 	for {
 		select {
@@ -103,6 +110,10 @@ func (m *SearchMonitor) Run(ctx context.Context, out chan<- CommitJob) {
 			jobs, err := m.searchCommits(ctx, q)
 			if err != nil {
 				logger.Printf("[search] %q error: %v", q, err)
+				select {
+				case <-time.After(30 * time.Second):
+				case <-ctx.Done():
+				}
 				continue
 			}
 			for _, j := range jobs {
@@ -112,8 +123,18 @@ func (m *SearchMonitor) Run(ctx context.Context, out chan<- CommitJob) {
 					return
 				}
 			}
+			if time.Since(heartbeat) > 5*time.Minute {
+				logger.Printf("[search] heartbeat: alive, processed %d queries, %d seen commits", queryIdx, syncMapLen(&m.seenCommits))
+				heartbeat = time.Now()
+			}
 		}
 	}
+}
+
+func syncMapLen(m *sync.Map) int {
+	n := 0
+	m.Range(func(_, _ interface{}) bool { n++; return true })
+	return n
 }
 
 func (m *SearchMonitor) searchCommits(ctx context.Context, query string) ([]CommitJob, error) {

@@ -62,14 +62,20 @@ func NewGitHubMonitor(token string) *GitHubMonitor {
 
 // Run starts the monitoring loop and sends CommitJobs to out until ctx is cancelled.
 func (m *GitHubMonitor) Run(ctx context.Context, out chan<- CommitJob) {
-	// We poll the public events endpoint. With a token you get 5000 req/hr
-	// and can receive up to 300 events per page.
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Printf("[monitor] FATAL: events monitor panicked: %v", r)
+		}
+	}()
+
 	interval := 1 * time.Second
 	if m.token == "" {
 		interval = 5 * time.Second
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	heartbeat := time.Now()
 
 	for {
 		select {
@@ -79,6 +85,10 @@ func (m *GitHubMonitor) Run(ctx context.Context, out chan<- CommitJob) {
 			events, pollInterval, err := m.fetchEvents(ctx)
 			if err != nil {
 				logger.Printf("[monitor] fetch error: %v", err)
+				select {
+				case <-time.After(30 * time.Second):
+				case <-ctx.Done():
+				}
 				continue
 			}
 			if pollInterval > 0 {
@@ -88,7 +98,6 @@ func (m *GitHubMonitor) Run(ctx context.Context, out chan<- CommitJob) {
 				if ev.Type != "PushEvent" {
 					continue
 				}
-				// Deduplicate events we've already seen.
 				if _, loaded := m.seenEvents.LoadOrStore(ev.ID, struct{}{}); loaded {
 					continue
 				}
@@ -112,6 +121,10 @@ func (m *GitHubMonitor) Run(ctx context.Context, out chan<- CommitJob) {
 						return
 					}
 				}
+			}
+			if time.Since(heartbeat) > 5*time.Minute {
+				logger.Printf("[monitor] heartbeat: alive, watching for PushEvents")
+				heartbeat = time.Now()
 			}
 		}
 	}
