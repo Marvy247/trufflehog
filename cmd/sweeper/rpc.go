@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"math/big"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -144,7 +148,7 @@ func trySOLBalance(ctx context.Context, address string, preferredURL string) (ui
 	var lastErr error
 	for _, url := range urls {
 		shortCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		bal, err := solGetBalance(shortCtx, address, url)
+		bal, err := solGetBalanceFallback(shortCtx, address, url)
 		cancel()
 		if err == nil {
 			return bal, nil
@@ -164,7 +168,7 @@ func trySUIBalance(ctx context.Context, address string, preferredURL string) (*b
 	var lastErr error
 	for _, url := range urls {
 		shortCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		bal, err := suiGetBalance(shortCtx, address, url)
+		bal, err := suiGetBalanceFallback(shortCtx, address, url)
 		cancel()
 		if err == nil {
 			return bal, nil
@@ -174,7 +178,7 @@ func trySUIBalance(ctx context.Context, address string, preferredURL string) (*b
 	return nil, lastErr
 }
 
-func solGetBalance(ctx context.Context, address, nodeURL string) (uint64, error) {
+func solGetBalanceFallback(ctx context.Context, address, nodeURL string) (uint64, error) {
 	payload := fmt.Sprintf(
 		`{"jsonrpc":"2.0","id":1,"method":"getBalance","params":["%s"]}`,
 		address,
@@ -206,7 +210,7 @@ func solGetBalance(ctx context.Context, address, nodeURL string) (uint64, error)
 	return rpcResp.Result.Value, nil
 }
 
-func suiGetBalance(ctx context.Context, address, nodeURL string) (*big.Int, error) {
+func suiGetBalanceFallback(ctx context.Context, address, nodeURL string) (*big.Int, error) {
 	payload := fmt.Sprintf(
 		`{"jsonrpc":"2.0","id":1,"method":"suix_getBalance","params":["%s","0x2::sui::SUI"]}`,
 		address,
