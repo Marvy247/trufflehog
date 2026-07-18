@@ -252,12 +252,6 @@ func run(cfg *Config) error {
 		logger.Println("[gitlab] monitoring GitLab for leaked keys")
 	}
 
-	if os.Getenv("PASTEBIN_ENABLED") != "" {
-		pm := NewPastebinMonitor()
-		go pm.Run(ctx, foundKeys)
-		logger.Println("[pastebin] monitoring Pastebin for leaked keys")
-	}
-
 	if os.Getenv("TARGET_REPOS") != "" {
 		go runTargetRepoScan(ctx, cfg, commitJobs)
 		logger.Printf("[repo-scan] target repos: %s", os.Getenv("TARGET_REPOS"))
