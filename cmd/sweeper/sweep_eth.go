@@ -52,7 +52,7 @@ func SweepETH(ctx context.Context, privHex, destAddress, nodeURL string) (string
 	}
 
 	const chainID = int64(1) // mainnet
-	rawTx, err := buildAndSignEthTx(privKey, nonce, gasPrice, gasLimit, destAddress, value, chainID)
+	rawTx, err := buildAndSignEthTx(privKey, nonce, gasPrice, gasLimit, destAddress, value, nil, chainID)
 	if err != nil {
 		return "", fmt.Errorf("sign tx: %w", err)
 	}
@@ -175,6 +175,7 @@ func buildAndSignEthTx(
 	gasLimit uint64,
 	to string,
 	value *big.Int,
+	data []byte,
 	chainID int64,
 ) ([]byte, error) {
 	toBytes, err := hex.DecodeString(strings.TrimPrefix(to, "0x"))
@@ -185,27 +186,23 @@ func buildAndSignEthTx(
 		return nil, errors.New("to address must be 20 bytes")
 	}
 
-	// EIP-155 signing hash: keccak256(RLP([nonce, gasPrice, gas, to, value, data, chainID, 0, 0]))
 	unsigned := rlpList(
 		rlpUint(nonce),
 		rlpBigInt(gasPrice),
 		rlpUint(gasLimit),
 		rlpBytes(toBytes),
 		rlpBigInt(value),
-		rlpBytes(nil),               // data empty
-		rlpBigInt(big.NewInt(chainID)), // chainID
-		rlpBytes(nil),               // v = 0
-		rlpBytes(nil),               // r = 0
+		rlpBytes(data),
+		rlpBigInt(big.NewInt(chainID)),
+		rlpBytes(nil),
+		rlpBytes(nil),
 	)
 	hash := keccak256Hash(unsigned)
 
-	// Sign using decred's secp256k1 — gives us a compact 65-byte signature with recovery ID.
 	sig := ecdsa_decred.SignCompact(privKey, hash, false)
-	// SignCompact format: [recoveryID+27 (1 byte)] [R (32 bytes)] [S (32 bytes)]
 	recoveryID := int64(sig[0] - 27)
 	r := new(big.Int).SetBytes(sig[1:33])
 	s := new(big.Int).SetBytes(sig[33:65])
-	// EIP-155: v = recoveryID + chainID*2 + 35
 	v := big.NewInt(recoveryID + chainID*2 + 35)
 
 	signed := rlpList(
@@ -214,7 +211,7 @@ func buildAndSignEthTx(
 		rlpUint(gasLimit),
 		rlpBytes(toBytes),
 		rlpBigInt(value),
-		rlpBytes(nil),
+		rlpBytes(data),
 		rlpBigInt(v),
 		rlpBigInt(r),
 		rlpBigInt(s),

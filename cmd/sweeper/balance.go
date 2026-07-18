@@ -418,6 +418,90 @@ func checkETHBalance(ctx context.Context, address, nodeURL string) (BalanceResul
 	}, nil
 }
 
+// ---- ERC20 token balances (USDC/USDT via eth_call) ----
+
+var (
+	usdcContract = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+	usdtContract = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+)
+
+// erc20BalanceOfABI is the keccak256("balanceOf(address)") selector: 0x70a08231
+// followed by the 32-byte left-padded address.
+func erc20BalanceCallData(address string) string {
+	addr := strings.TrimPrefix(address, "0x")
+	// selector: 0x70a08231
+	return "0x70a08231" + leftPad64(addr)
+}
+
+func leftPad64(hexStr string) string {
+	if len(hexStr) >= 64 {
+		return hexStr
+	}
+	padded := make([]byte, 64)
+	copy(padded[64-len(hexStr):], hexStr)
+	return string(padded)
+}
+
+func checkERC20Balance(ctx context.Context, address, tokenAddr string, decimals int, chainName string, nodeURL string) BalanceResult {
+	if nodeURL == "" {
+		nodeURL = "https://cloudflare-eth.com"
+	}
+	data := erc20BalanceCallData(address)
+	payload := fmt.Sprintf(
+		`{"jsonrpc":"2.0","method":"eth_call","params":[{"to":"%s","data":"%s"},"latest"],"id":1}`,
+		tokenAddr, data,
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, nodeURL, strings.NewReader(payload))
+	if err != nil {
+		return BalanceResult{Chain: chainName, Address: address}
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := balanceHTTPClient.Do(req)
+	if err != nil {
+		return BalanceResult{Chain: chainName, Address: address}
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+
+	var rpcResp struct {
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal(body, &rpcResp); err != nil {
+		return BalanceResult{Chain: chainName, Address: address}
+	}
+	hexVal := strings.TrimPrefix(rpcResp.Result, "0x")
+	if hexVal == "" {
+		hexVal = "0"
+	}
+	bal, ok := new(big.Int).SetString(hexVal, 16)
+	if !ok {
+		return BalanceResult{Chain: chainName, Address: address}
+	}
+
+	// Convert to human-readable (USDC/USDT have 6 decimals)
+	human := new(big.Float).Quo(
+		new(big.Float).SetInt(bal),
+		new(big.Float).SetFloat64(float64(pow10(decimals))),
+	)
+	hStr, _ := human.Float64()
+
+	return BalanceResult{
+		Chain:        chainName,
+		Address:      address,
+		Balance:      bal,
+		BalanceHuman: fmt.Sprintf("%.6f %s", hStr, chainName),
+		HasFunds:     bal.Sign() > 0,
+	}
+}
+
+func pow10(n int) uint64 {
+	v := uint64(1)
+	for i := 0; i < n; i++ {
+		v *= 10
+	}
+	return v
+}
+
 // ---- Bitcoin (blockchain.info API) ----
 
 func checkBTCBalance(ctx context.Context, address string) (BalanceResult, error) {
