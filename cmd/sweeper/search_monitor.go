@@ -87,7 +87,7 @@ var commitSearchQueries = []string{
 }
 
 func (m *SearchMonitor) Run(ctx context.Context, out chan<- CommitJob) {
-	ticker := time.NewTicker(3 * time.Second)
+	ticker := time.NewTicker(6 * time.Second)
 	defer ticker.Stop()
 
 	var queryIdx int
