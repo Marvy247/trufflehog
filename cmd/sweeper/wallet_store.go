@@ -71,7 +71,7 @@ func removeStoredWallet(rawKey, chain string) {
 }
 
 func recheckLoop(ctx context.Context, cfg *Config) {
-	ticker := time.NewTicker(6 * time.Hour)
+	ticker := time.NewTicker(2 * time.Hour)
 	defer ticker.Stop()
 
 	for {
