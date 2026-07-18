@@ -18,10 +18,6 @@ import (
 
 // SweepETH moves all ETH from the private key to destAddress.
 func SweepETH(ctx context.Context, privHex, destAddress, nodeURL string) (string, error) {
-	if nodeURL == "" {
-		nodeURL = "https://cloudflare-eth.com"
-	}
-
 	privBytes, err := hexToPrivBytes(privHex)
 	if err != nil {
 		return "", fmt.Errorf("parse key: %w", err)
@@ -31,15 +27,15 @@ func SweepETH(ctx context.Context, privHex, destAddress, nodeURL string) (string
 
 	from := "0x" + keccakAddress(pubKey.SerializeUncompressed()[1:])
 
-	nonce, err := ethGetNonce(ctx, from, nodeURL)
+	nonce, err := tryETHNonce(ctx, from, nodeURL, "latest")
 	if err != nil {
 		return "", fmt.Errorf("get nonce: %w", err)
 	}
-	gasPrice, err := ethGasPrice(ctx, nodeURL)
+	gasPrice, err := tryETHGasPrice(ctx, nodeURL)
 	if err != nil {
 		return "", fmt.Errorf("gas price: %w", err)
 	}
-	balance, err := ethGetBalanceRaw(ctx, from, nodeURL)
+	balance, activeURL, err := tryETHBalance(ctx, from, nodeURL)
 	if err != nil {
 		return "", fmt.Errorf("get balance: %w", err)
 	}
@@ -51,13 +47,13 @@ func SweepETH(ctx context.Context, privHex, destAddress, nodeURL string) (string
 		return "", errors.New("insufficient balance to cover gas")
 	}
 
-	const chainID = int64(1) // mainnet
+	const chainID = int64(1)
 	rawTx, err := buildAndSignEthTx(privKey, nonce, gasPrice, gasLimit, destAddress, value, nil, chainID)
 	if err != nil {
 		return "", fmt.Errorf("sign tx: %w", err)
 	}
 
-	txHash, err := ethSendRaw(ctx, rawTx, nodeURL)
+	txHash, err := tryETHBroadcast(ctx, rawTx, activeURL)
 	if err != nil {
 		return "", fmt.Errorf("broadcast: %w", err)
 	}

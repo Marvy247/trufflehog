@@ -327,11 +327,7 @@ func handleFoundKey(ctx context.Context, key FoundKey, cfg *Config) {
 		if ethBalance == nil {
 			ethBalance = big.NewInt(0)
 		}
-		nodeURL := cfg.ETHNodeURL
-		if nodeURL == "" {
-			nodeURL = "https://cloudflare-eth.com"
-		}
-		gasPrice, gpErr := ethGasPrice(ctx, nodeURL)
+		gasPrice, gpErr := tryETHGasPrice(ctx, cfg.ETHNodeURL)
 		if gpErr == nil {
 			needed := new(big.Int).Mul(gasPrice, big.NewInt(21000+int64(tokenCount)*int64(erc20GasLimit)))
 			if ethBalance.Cmp(needed) < 0 {

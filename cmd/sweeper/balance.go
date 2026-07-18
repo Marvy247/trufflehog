@@ -234,53 +234,21 @@ func checkSTXBalance(ctx context.Context, address string) (BalanceResult, error)
 // ---- Sui (Sui RPC) ----
 
 func checkSuiBalance(ctx context.Context, address, nodeURL string) (BalanceResult, error) {
-	if nodeURL == "" {
-		nodeURL = "https://fullnode.mainnet.sui.io"
-	}
-	payload := fmt.Sprintf(
-		`{"jsonrpc":"2.0","id":1,"method":"suix_getBalance","params":["%s","0x2::sui::SUI"]}`,
-		address,
-	)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, nodeURL, strings.NewReader(payload))
+	mist, err := trySUIBalance(ctx, address, nodeURL)
 	if err != nil {
 		return BalanceResult{}, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := balanceHTTPClient.Do(req)
-	if err != nil {
-		return BalanceResult{}, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-
-	var rpcResp struct {
-		Result struct {
-			TotalBalance string `json:"totalBalance"` // MIST as string
-		} `json:"result"`
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(body, &rpcResp); err != nil {
-		return BalanceResult{}, fmt.Errorf("unmarshal: %w; body: %s", err, body)
-	}
-	if rpcResp.Error != nil {
-		return BalanceResult{}, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
-	}
-	mist, ok := new(big.Int).SetString(rpcResp.Result.TotalBalance, 10)
-	if !ok {
-		return BalanceResult{}, fmt.Errorf("invalid SUI balance: %q", rpcResp.Result.TotalBalance)
-	}
-	suiVal, _ := new(big.Float).Quo(
+	suiVal := new(big.Float).Quo(
 		new(big.Float).SetInt(mist),
 		new(big.Float).SetFloat64(1e9),
-	).Float64()
+	)
+	h, _ := suiVal.Float64()
 
 	return BalanceResult{
 		Chain:        "Sui",
 		Address:      address,
 		Balance:      mist,
-		BalanceHuman: fmt.Sprintf("%.9f SUI", suiVal),
+		BalanceHuman: fmt.Sprintf("%.9f SUI", h),
 		HasFunds:     mist.Sign() > 0,
 	}, nil
 }
@@ -357,52 +325,14 @@ func parseDecimalStr(s string) (*big.Int, error) {
 // ---- Ethereum (eth_getBalance via JSON-RPC) ----
 
 func checkETHBalance(ctx context.Context, address, nodeURL string) (BalanceResult, error) {
-	if nodeURL == "" {
-		nodeURL = "https://cloudflare-eth.com" // free public node
-	}
-
-	payload := fmt.Sprintf(
-		`{"jsonrpc":"2.0","method":"eth_getBalance","params":["%s","latest"],"id":1}`,
-		address,
-	)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, nodeURL,
-		strings.NewReader(payload))
+	wei, activeURL, err := tryETHBalance(ctx, address, nodeURL)
 	if err != nil {
 		return BalanceResult{}, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := balanceHTTPClient.Do(req)
-	if err != nil {
-		return BalanceResult{}, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-
-	var rpcResp struct {
-		Result string `json:"result"`
-		Error  *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(body, &rpcResp); err != nil {
-		return BalanceResult{}, fmt.Errorf("unmarshal: %w; body: %s", err, body)
-	}
-	if rpcResp.Error != nil {
-		return BalanceResult{}, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
+	if activeURL != "" && activeURL != nodeURL {
+		logger.Printf("[rpc] ETH: using %s (preferred %s was unavailable)", activeURL, nodeURL)
 	}
 
-	// Result is hex wei, e.g. "0x38d7ea4c68000"
-	weiHex := strings.TrimPrefix(rpcResp.Result, "0x")
-	if weiHex == "" {
-		weiHex = "0"
-	}
-	wei, ok := new(big.Int).SetString(weiHex, 16)
-	if !ok {
-		return BalanceResult{}, fmt.Errorf("invalid wei hex: %q", rpcResp.Result)
-	}
-
-	// Convert to ETH (1 ETH = 1e18 wei).
 	ethVal := new(big.Float).Quo(
 		new(big.Float).SetInt(wei),
 		new(big.Float).SetFloat64(1e18),
@@ -540,55 +470,22 @@ func checkBTCBalance(ctx context.Context, address string) (BalanceResult, error)
 // ---- Solana (getBalance via JSON-RPC) ----
 
 func checkSolanaBalance(ctx context.Context, address, nodeURL string) (BalanceResult, error) {
-	if nodeURL == "" {
-		nodeURL = "https://api.mainnet-beta.solana.com"
-	}
-
-	payload := fmt.Sprintf(
-		`{"jsonrpc":"2.0","id":1,"method":"getBalance","params":["%s"]}`,
-		address,
-	)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, nodeURL,
-		strings.NewReader(payload))
+	lamports, err := trySOLBalance(ctx, address, nodeURL)
 	if err != nil {
 		return BalanceResult{}, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := balanceHTTPClient.Do(req)
-	if err != nil {
-		return BalanceResult{}, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-
-	var rpcResp struct {
-		Result struct {
-			Value uint64 `json:"value"`
-		} `json:"result"`
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(body, &rpcResp); err != nil {
-		return BalanceResult{}, fmt.Errorf("unmarshal: %w; body: %s", err, body)
-	}
-	if rpcResp.Error != nil {
-		return BalanceResult{}, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
-	}
-
-	lamports := big.NewInt(int64(rpcResp.Result.Value))
-	solVal, _ := new(big.Float).Quo(
-		new(big.Float).SetUint64(rpcResp.Result.Value),
+	solVal := new(big.Float).Quo(
+		new(big.Float).SetUint64(lamports),
 		new(big.Float).SetFloat64(1e9),
-	).Float64()
+	)
+	h, _ := solVal.Float64()
 
 	return BalanceResult{
 		Chain:        "Solana",
 		Address:      address,
-		Balance:      lamports,
-		BalanceHuman: fmt.Sprintf("%.9f SOL", solVal),
-		HasFunds:     lamports.Sign() > 0,
+		Balance:      big.NewInt(int64(lamports)),
+		BalanceHuman: fmt.Sprintf("%.9f SOL", h),
+		HasFunds:     lamports > 0,
 	}, nil
 }
 
