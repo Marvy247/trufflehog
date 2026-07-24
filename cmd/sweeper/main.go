@@ -41,6 +41,8 @@ type Config struct {
 	Workers       int
 	VerifyOnline  bool
 	DryRun        bool
+	GHArchiveFrom string
+	GHArchiveTo   string
 }
 
 func main() {
@@ -84,6 +86,10 @@ func main() {
 		"Call online verify functions in the blockchain detector (slower)")
 	flag.BoolVar(&cfg.DryRun, "dry-run", false,
 		"Print what would be done without sending transactions or webhooks")
+	flag.StringVar(&cfg.GHArchiveFrom, "gharchive-from", os.Getenv("GHARCHIVE_FROM"),
+		"Start date for GH Archive historical scan (YYYY-MM-DD, e.g. 2026-06-01)")
+	flag.StringVar(&cfg.GHArchiveTo, "gharchive-to", os.Getenv("GHARCHIVE_TO"),
+		"End date for GH Archive historical scan (YYYY-MM-DD, default: yesterday)")
 	flag.Parse()
 
 	if err := run(cfg); err != nil {
@@ -255,6 +261,24 @@ func run(cfg *Config) error {
 	if os.Getenv("TARGET_REPOS") != "" {
 		go runTargetRepoScan(ctx, cfg, commitJobs)
 		logger.Printf("[repo-scan] target repos: %s", os.Getenv("TARGET_REPOS"))
+	}
+
+	if cfg.GHArchiveFrom != "" {
+		from, err := time.Parse("2006-01-02", cfg.GHArchiveFrom)
+		if err != nil {
+			logger.Printf("[gharchive] invalid from date %q: %v", cfg.GHArchiveFrom, err)
+		} else {
+			to := time.Now().UTC().Add(-24 * time.Hour)
+			if cfg.GHArchiveTo != "" {
+				parsed, err := time.Parse("2006-01-02", cfg.GHArchiveTo)
+				if err == nil {
+					to = parsed
+				}
+			}
+			archiver := NewGHArchiveScanner()
+			go archiver.RunHistoricalScan(ctx, commitJobs, from, to)
+			logger.Printf("[gharchive] scanning from %s to %s", from.Format("2006-01-02"), to.Format("2006-01-02"))
+		}
 	}
 
 	for {
