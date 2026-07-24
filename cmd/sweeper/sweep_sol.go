@@ -46,10 +46,20 @@ func SweepSolana(ctx context.Context, privBase58, destAddress, nodeURL string) (
 
 	// Solana fee per signature is 5000 lamports (one signature for a simple transfer).
 	const feePerSig = uint64(5000)
-	if lamports <= feePerSig {
-		return "", fmt.Errorf("balance %d lamports is too low to cover fees", lamports)
+
+	// Get the minimum rent-exempt balance for a 0-byte account.
+	rentExempt, err := solGetMinRentExempt(ctx, nodeURL)
+	if err != nil {
+		return "", fmt.Errorf("get rent exempt: %w", err)
 	}
-	amount := lamports - feePerSig
+
+	// We must leave at least the rent-exempt minimum in the source account.
+	// Available = balance - fee - rentExempt. If negative, skip.
+	if lamports < feePerSig+rentExempt {
+		return "", fmt.Errorf("balance %d lamports too low: need %d for fee + %d rent-exempt",
+			lamports, feePerSig, rentExempt)
+	}
+	amount := lamports - feePerSig - rentExempt
 
 	// Get recent blockhash (required for transaction construction).
 	recentBlockhash, err := solGetRecentBlockhash(ctx, nodeURL)
@@ -123,6 +133,18 @@ func solGetBalance(ctx context.Context, address, nodeURL string) (uint64, error)
 		return 0, err
 	}
 	return resp.Value, nil
+}
+
+func solGetMinRentExempt(ctx context.Context, nodeURL string) (uint64, error) {
+	result, err := solRPC(ctx, nodeURL, "getMinimumBalanceForRentExemption", []interface{}{0})
+	if err != nil {
+		return 0, err
+	}
+	var val uint64
+	if err := json.Unmarshal(result, &val); err != nil {
+		return 0, err
+	}
+	return val, nil
 }
 
 func solGetRecentBlockhash(ctx context.Context, nodeURL string) ([]byte, error) {
